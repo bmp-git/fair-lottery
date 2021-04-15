@@ -2,7 +2,6 @@
 
 pragma solidity >=0.8.0 <0.9.0;
 
-import {SafeMath} from "./SafeMath.sol";
 import {Ownable} from "./Ownable.sol";
 
 
@@ -12,8 +11,7 @@ contract Lottery is Ownable {
         uint256 amount;
         uint256 probability;
         uint256 blockNumber;
-        bool opened;
-        bool winner;
+        bool redeemed;
     }
     
     mapping(address => Ticket[]) public tickets;
@@ -26,36 +24,28 @@ contract Lottery is Ownable {
     
     receive() external payable { }
     
-    /*Redeem a (winning) ticket*/
+    /*Redeem a winning ticket*/
     function redeemTicket(uint256 index) public {
         Ticket storage ticket = tickets[msg.sender][index];
-
-        (, uint256 winAmount) = ticketWins(ticket.amount, ticket.probability);
-
-        require(!ticket.opened, "Ticket already opened");
+        (, uint256 winAmount) = computeFeeAndWins(ticket.amount, ticket.probability);
+        require(!ticket.redeemed, "Ticket already opened");
         require(block.number - ticket.blockNumber >= 5, "Need more blocks.");
         require(block.number - ticket.blockNumber <= 255, "The ticket is expired.");
-        
-        bytes32 seed = blockhash(ticket.blockNumber) ^ blockhash(ticket.blockNumber + 1) ^ blockhash(ticket.blockNumber + 2) ^ blockhash(ticket.blockNumber + 3) ^ blockhash(ticket.blockNumber + 4);
-        uint256 rand = uint256(seed) % pMax;
-
-        if(ticket.probability >= rand) {
-            winAmount = SafeMath.min(winAmount, address(this).balance); //fund can be emptied
-            (bool success,) = msg.sender.call{value: winAmount}("");
-            require(success, "Not payable address");
-            ticket.winner = true;
-        }
-        ticket.opened = true;
+        require(hasWin(ticket.probability, ticket.blockNumber), "Not a winning ticket.");
+        winAmount = min(winAmount, address(this).balance); //fund can be emptied
+        (bool success,) = msg.sender.call{value: winAmount}("");
+        require(success, "Not payable address");
+        ticket.redeemed = true;
     }
     
     /*Buy a ticket*/
     function buyTicket(uint256 p) public payable {
         require(p > 0 && p < pMax, "Invalid probability.");
         uint256 amount = msg.value;
-        (uint256 fee, uint256 winAmount) = ticketWins(amount, p);
+        (uint256 fee, uint256 winAmount) = computeFeeAndWins(amount, p);
         require(amount > fee, "The bid amount is too low"); //only needed if pMax is greater than ownerFees
-        require(winAmount - amount < SafeMath.div(address(this).balance, safetyFactor), "The potential win exeed the safety factor.");
-        tickets[msg.sender].push(Ticket(msg.value, p, block.number, false, false));
+        require(winAmount - amount < address(this).balance / safetyFactor, "The potential win exeed the safety factor.");
+        tickets[msg.sender].push(Ticket(msg.value, p, block.number, false));
         (bool success,) = owner().call{value: fee}("");
         require(success, "Fee payment failed.");
     }
@@ -69,17 +59,28 @@ contract Lottery is Ownable {
         Ticket memory ticket = tickets[msg.sender][index];
         require(block.number - ticket.blockNumber >= 5, "Need more blocks.");
         require(block.number - ticket.blockNumber <= 255, "The ticket is expired.");
-        bytes32 seed = blockhash(ticket.blockNumber) ^ blockhash(ticket.blockNumber + 1) ^ blockhash(ticket.blockNumber + 2) ^ blockhash(ticket.blockNumber + 3) ^ blockhash(ticket.blockNumber + 4);
-        uint256 rand = uint256(seed) % pMax;
-        return ticket.probability >= rand;
+        return hasWin(ticket.probability, ticket.blockNumber);
     }
     
     /* Utilities */
-    function ticketWins(uint256 amount, uint256 p) private pure returns (uint256, uint256) {
-        uint256 pureWinAmount = SafeMath.div(SafeMath.mul(amount, pMax), p);
-        uint256 fee = SafeMath.div(pureWinAmount, ownerFees);
-        uint256 winAmount = pureWinAmount - fee * 2;
+    function computeFeeAndWins(uint256 amount, uint256 p) private pure returns (uint256, uint256) {
+        uint256 pureWinAmount = (amount * pMax) / p;
+        uint256 fee = (pureWinAmount - amount) / ownerFees;
+        uint256 winAmount = pureWinAmount - (fee * 2);
         return (fee, winAmount);
+    }
+    
+    function random(uint256 i) private view returns (uint256) {
+        bytes32 seed = blockhash(i) ^ blockhash(i + 1) ^ blockhash(i + 2) ^ blockhash(i + 3) ^ blockhash(i + 4);
+        return uint256(seed);
+    }
+    
+    function hasWin(uint256 p, uint256 i) private view returns (bool) {
+        return p > (random(i) % pMax);
+    }
+    
+    function min(uint a, uint b) private pure returns (uint) {
+        return a < b ? a : b;
     }
     
     /* Governance */
