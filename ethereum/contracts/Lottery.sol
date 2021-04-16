@@ -29,8 +29,7 @@ contract Lottery is Ownable {
         Ticket storage ticket = tickets[msg.sender][index];
         (, uint256 winAmount) = computeFeeAndWins(ticket.amount, ticket.probability);
         require(!ticket.redeemed, "Ticket already opened");
-        require(block.number - ticket.blockNumber >= 5, "Need more blocks.");
-        require(block.number - ticket.blockNumber <= 255, "The ticket is expired.");
+        requireBlockRangeIsValird(block.number, ticket.blockNumber);
         require(hasWin(ticket.probability, ticket.blockNumber), "Not a winning ticket.");
         winAmount = min(winAmount, address(this).balance); //fund can be emptied
         (bool success,) = msg.sender.call{value: winAmount}("");
@@ -41,24 +40,22 @@ contract Lottery is Ownable {
     /*Buy a ticket*/
     function buyTicket(uint256 p) public payable {
         require(p > 0 && p < pMax, "Invalid probability.");
-        uint256 amount = msg.value;
-        (uint256 fee, uint256 winAmount) = computeFeeAndWins(amount, p);
-        require(amount > fee, "The bid amount is too low"); //only needed if pMax is greater than ownerFees
-        require(winAmount - amount < address(this).balance / safetyFactor, "The potential win exeed the safety factor.");
+        (uint256 fee, uint256 winAmount) = computeFeeAndWins(msg.value, p);
+        require(msg.value > 2 * fee, "The bid amount is too low");
+        require(winAmount - msg.value < address(this).balance / safetyFactor, "The potential win exeed the safety limit.");
         tickets[msg.sender].push(Ticket(msg.value, p, block.number, false));
         (bool success,) = owner().call{value: fee}("");
         require(success, "Fee payment failed.");
     }
     
-    /*Views*/
+    /*Public views*/
     function viewFundBalance() external view returns(uint256) {
         return address(this).balance;
     }
     
     function isWinningTicket(uint256 index) external view returns(bool) {
         Ticket memory ticket = tickets[msg.sender][index];
-        require(block.number - ticket.blockNumber >= 5, "Need more blocks.");
-        require(block.number - ticket.blockNumber <= 255, "The ticket is expired.");
+        requireBlockRangeIsValird(block.number, ticket.blockNumber);
         return hasWin(ticket.probability, ticket.blockNumber);
     }
     
@@ -73,6 +70,11 @@ contract Lottery is Ownable {
     function random(uint256 i) private view returns (uint256) {
         bytes32 seed = blockhash(i) ^ blockhash(i + 1) ^ blockhash(i + 2) ^ blockhash(i + 3) ^ blockhash(i + 4);
         return uint256(seed);
+    }
+    
+    function requireBlockRangeIsValird(uint256 blockNumber, uint256 ticketBlockNumber) private pure {
+        require(blockNumber - ticketBlockNumber >= 5, "Need more blocks.");
+        require(blockNumber - ticketBlockNumber <= 255, "The ticket is expired.");
     }
     
     function hasWin(uint256 p, uint256 i) private view returns (bool) {
