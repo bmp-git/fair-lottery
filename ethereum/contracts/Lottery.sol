@@ -12,6 +12,7 @@ contract Lottery is Ownable {
         uint256 probability;
         uint256 blockNumber;
         bool redeemed;
+        bool signed;
     }
     
     mapping(address => Ticket[]) public tickets;
@@ -24,26 +25,39 @@ contract Lottery is Ownable {
     
     receive() external payable { }
     
-    /*Redeem a winning ticket*/
-    function redeemTicket(uint256 index) public {
-        Ticket storage ticket = tickets[msg.sender][index];
-        (, uint256 winAmount) = computeFeeAndWins(ticket.amount, ticket.probability);
-        require(!ticket.redeemed, "Ticket already opened");
+    /*Sign a winning ticket*/
+    function signTicket(address ticketOwner, uint256 index) public {
+        Ticket storage ticket = tickets[ticketOwner][index];
+        require(!ticket.redeemed, "Ticket already redeemed");
+        require(!ticket.signed, "Ticket already signed.");
         requireBlockRangeIsValid(block.number, ticket.blockNumber);
         require(hasWin(ticket.probability, ticket.blockNumber), "Not a winning ticket.");
+        ticket.signed = true;
+    }
+    
+    /*Redeem a winning ticket*/
+    function redeemTicket(address ticketOwner, uint256 index) public {
+        Ticket storage ticket = tickets[ticketOwner][index];
+        (, uint256 winAmount) = computeFeeAndWins(ticket.amount, ticket.probability);
+        require(!ticket.redeemed, "Ticket already redeemed.");
+        if(!ticket.signed) {
+            requireBlockRangeIsValid(block.number, ticket.blockNumber);
+            require(hasWin(ticket.probability, ticket.blockNumber), "Not a winning ticket.");
+        }
         winAmount = winAmount < address(this).balance ? winAmount : address(this).balance;
-        (bool success,) = msg.sender.call{value: winAmount}("");
+        (bool success,) = ticketOwner.call{value: winAmount}("");
         require(success, "Not payable address");
         ticket.redeemed = true;
+        ticket.signed = true;
     }
     
     /*Buy a ticket*/
-    function buyTicket(uint256 p) public payable {
+    function buyTicket(address ticketOwner, uint256 p) public payable {
         require(p > 0 && p < pMax, "Invalid probability.");
         (uint256 fee, uint256 winAmount) = computeFeeAndWins(msg.value, p);
         require(msg.value > 2 * fee, "The bid amount is too low");
         require(winAmount - msg.value < address(this).balance / safetyFactor, "The potential win exeed the safety limit.");
-        tickets[msg.sender].push(Ticket(msg.value, p, block.number, false));
+        tickets[ticketOwner].push(Ticket(msg.value, p, block.number, false, false));
         (bool success,) = owner().call{value: fee}("");
         require(success, "Fee payment failed.");
     }
@@ -53,8 +67,8 @@ contract Lottery is Ownable {
         return address(this).balance;
     }
     
-    function isWinningTicket(uint256 index) external view returns(bool) {
-        Ticket memory ticket = tickets[msg.sender][index];
+    function isWinningTicket(address ticketOwner, uint256 index) external view returns(bool) {
+        Ticket memory ticket = tickets[ticketOwner][index];
         requireBlockRangeIsValid(block.number, ticket.blockNumber);
         return hasWin(ticket.probability, ticket.blockNumber);
     }
