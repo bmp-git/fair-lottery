@@ -29,9 +29,9 @@ contract Lottery is Ownable {
         Ticket storage ticket = tickets[msg.sender][index];
         (, uint256 winAmount) = computeFeeAndWins(ticket.amount, ticket.probability);
         require(!ticket.redeemed, "Ticket already opened");
-        requireBlockRangeIsValird(block.number, ticket.blockNumber);
+        requireBlockRangeIsValid(block.number, ticket.blockNumber);
         require(hasWin(ticket.probability, ticket.blockNumber), "Not a winning ticket.");
-        winAmount = min(winAmount, address(this).balance); //fund can be emptied
+        winAmount = winAmount < address(this).balance ? winAmount : address(this).balance;
         (bool success,) = msg.sender.call{value: winAmount}("");
         require(success, "Not payable address");
         ticket.redeemed = true;
@@ -55,7 +55,7 @@ contract Lottery is Ownable {
     
     function isWinningTicket(uint256 index) external view returns(bool) {
         Ticket memory ticket = tickets[msg.sender][index];
-        requireBlockRangeIsValird(block.number, ticket.blockNumber);
+        requireBlockRangeIsValid(block.number, ticket.blockNumber);
         return hasWin(ticket.probability, ticket.blockNumber);
     }
     
@@ -72,7 +72,7 @@ contract Lottery is Ownable {
         return uint256(seed);
     }
     
-    function requireBlockRangeIsValird(uint256 blockNumber, uint256 ticketBlockNumber) private pure {
+    function requireBlockRangeIsValid(uint256 blockNumber, uint256 ticketBlockNumber) private pure {
         require(blockNumber - ticketBlockNumber >= 5, "Need more blocks.");
         require(blockNumber - ticketBlockNumber <= 255, "The ticket is expired.");
     }
@@ -81,9 +81,6 @@ contract Lottery is Ownable {
         return p > (random(i) % pMax);
     }
     
-    function min(uint a, uint b) private pure returns (uint) {
-        return a < b ? a : b;
-    }
     
     /* Governance */
     function changeSafetyFactor(uint256 factor) external onlyOwner {
