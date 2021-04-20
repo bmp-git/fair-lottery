@@ -31,7 +31,7 @@ contract Lottery is Ownable {
         require(!ticket.redeemed, "Ticket already redeemed");
         require(!ticket.signed, "Ticket already signed.");
         requireBlockRangeIsValid(block.number, ticket.blockNumber);
-        require(hasWin(ticket.probability, ticket.blockNumber), "Not a winning ticket.");
+        require(hasWin(ticket, ticketOwner, index), "Not a winning ticket.");
         ticket.signed = true;
     }
     
@@ -42,7 +42,7 @@ contract Lottery is Ownable {
         require(!ticket.redeemed, "Ticket already redeemed.");
         if(!ticket.signed) {
             requireBlockRangeIsValid(block.number, ticket.blockNumber);
-            require(hasWin(ticket.probability, ticket.blockNumber), "Not a winning ticket.");
+            require(hasWin(ticket, ticketOwner, index), "Not a winning ticket.");
         }
         winAmount = winAmount < address(this).balance ? winAmount : address(this).balance;
         (bool success,) = ticketOwner.call{value: winAmount}("");
@@ -70,7 +70,7 @@ contract Lottery is Ownable {
     function isWinningTicket(address ticketOwner, uint256 index) external view returns(bool) {
         Ticket memory ticket = tickets[ticketOwner][index];
         requireBlockRangeIsValid(block.number, ticket.blockNumber);
-        return hasWin(ticket.probability, ticket.blockNumber);
+        return hasWin(ticket, ticketOwner, index);
     }
     
     /* Utilities */
@@ -81,8 +81,9 @@ contract Lottery is Ownable {
         return (fee, winAmount);
     }
     
-    function random(uint256 i) private view returns (uint256) {
-        bytes32 seed = blockhash(i) ^ blockhash(i + 1) ^ blockhash(i + 2) ^ blockhash(i + 3) ^ blockhash(i + 4);
+    function random(uint256 i, address ticketOwner, uint256 ticketIndex) private view returns (uint256) {
+        bytes32 ticketId = keccak256(abi.encode(ticketOwner, ticketIndex));
+        bytes32 seed = blockhash(i) ^ blockhash(i + 1) ^ blockhash(i + 2) ^ blockhash(i + 3) ^ blockhash(i + 4) ^ ticketId;
         return uint256(seed);
     }
     
@@ -91,8 +92,8 @@ contract Lottery is Ownable {
         require(blockNumber - ticketBlockNumber <= 255, "The ticket is expired.");
     }
     
-    function hasWin(uint256 p, uint256 i) private view returns (bool) {
-        return p > (random(i) % pMax);
+    function hasWin(Ticket memory ticket, address ticketOwner, uint256 ticketIndex) private view returns (bool) {
+        return ticket.probability > (random(ticket.blockNumber, ticketOwner, ticketIndex) % pMax);
     }
     
     

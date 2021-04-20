@@ -21,9 +21,10 @@ True randomness in a deterministic environment (EVM) is not possible. However, t
 ### How it works
 The random function is implemented as follows:
 ```solidity
-function random(uint256 i) private view returns (uint256) {
-    bytes32 seed = blockhash(i) ^ blockhash(i + 1) ^ blockhash(i + 2) ^ blockhash(i + 3) ^ blockhash(i + 4);
-    return uint256(seed);
+function random(uint256 i, address ticketOwner, uint256 ticketIndex) private view returns (uint256) {
+	bytes32 ticketId = keccak256(abi.encode(ticketOwner, ticketIndex));
+	bytes32 seed = blockhash(i) ^ blockhash(i + 1) ^ blockhash(i + 2) ^ blockhash(i + 3) ^ blockhash(i + 4) ^ ticketId;
+	return uint256(seed);
 }
 ```
 Where `i` is the index of the block in which the ticket was bought. It is possible to find out if the ticket is a winner only after 5 blocks from the purchase. In this way the miners competing to find the next block increase the entropy of the random function.
